@@ -1,6 +1,6 @@
 /* Service worker — cache-first, הכל אופליין */
 
-var CACHE = 'wa-incognito-v1';
+var CACHE = 'wa-incognito-v2';
 
 var ASSETS = [
   './',
