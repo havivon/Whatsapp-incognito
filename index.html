@@ -2,7 +2,7 @@
 <html lang="he" dir="rtl">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
 <title>וואטסאפ למספר לא שמור</title>
 <meta name="description" content="פתיחת צ'אט וואטסאפ למספר שלא שמור באנשי הקשר — הכל מקומי בדפדפן.">
 <meta name="theme-color" content="#0b0f14">
@@ -28,7 +28,7 @@
   }
 
   *{box-sizing:border-box}
-  html,body{height:100%}
+  html,body{min-height:100%}
 
   body{
     margin:0;
@@ -113,11 +113,28 @@
     outline:none;
     transition:border-color .18s ease, box-shadow .18s ease, background .18s ease;
   }
+  .field{position:relative;display:block}
   input[type=tel]{
     direction:ltr;text-align:center;
     font-size:25px;font-weight:700;letter-spacing:.6px;
-    padding:15px 14px;
+    /* מקום שווה משני הצדדים כדי שהמספר יישאר ממורכז מתחת לכפתור ה-× */
+    padding:15px 46px;
   }
+  .clear-x{
+    position:absolute;top:50%;left:9px;transform:translateY(-50%);
+    width:32px;height:32px;padding:0;
+    display:grid;place-items:center;
+    color:var(--muted);
+    background:rgba(255,255,255,.07);
+    border:1px solid rgba(255,255,255,.1);
+    border-radius:50%;cursor:pointer;
+    transition:color .16s ease, background .16s ease, border-color .16s ease, transform .16s ease;
+  }
+  .clear-x svg{width:15px;height:15px}
+  .clear-x:hover{color:#ffd9d9;background:rgba(255,90,90,.16);border-color:rgba(255,90,90,.34)}
+  .clear-x:active{transform:translateY(-50%) scale(.9)}
+  .clear-x:focus-visible{outline:none;box-shadow:0 0 0 3px rgba(37,211,102,.28)}
+  .clear-x[hidden]{display:none}
   input[type=tel]::placeholder{color:#54657a;font-weight:600;letter-spacing:.4px}
   input[type=tel]:focus,textarea:focus{
     border-color:rgba(37,211,102,.55);
@@ -246,6 +263,9 @@
 
   .hidden{display:none!important}
 
+  /* בלי transition — הגובה חייב לחול מיד, לפני הגלילה אל הכפתור */
+  #kbSpacer{height:0;flex:0 0 auto;width:100%}
+
   @media (max-width:380px){
     h1{font-size:23px}
     input[type=tel]{font-size:22px}
@@ -283,8 +303,15 @@
       </button>
     </div>
 
-    <input id="phone" type="tel" dir="ltr" inputmode="tel" autocomplete="off"
-           autocapitalize="off" spellcheck="false" placeholder="050-123-4567">
+    <div class="field">
+      <input id="phone" type="tel" dir="ltr" inputmode="tel" autocomplete="off"
+             autocapitalize="off" spellcheck="false" placeholder="050-123-4567">
+      <button type="button" class="clear-x" id="clearX" aria-label="נקה שדה" hidden>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true">
+          <path d="M6 6l12 12M18 6L6 18"/>
+        </svg>
+      </button>
+    </div>
 
     <div class="status" id="status" role="status" aria-live="polite"></div>
 
@@ -325,6 +352,9 @@
   </p>
 
 </div>
+
+<!-- מתמלא בגובה המקלדת כשהיא נפתחת, כדי שיהיה לאן לגלול -->
+<div id="kbSpacer" aria-hidden="true"></div>
 
 <div id="toast" role="status" aria-live="polite"></div>
 
@@ -389,6 +419,8 @@
   var msgToggle = document.getElementById('msgToggle');
   var msgBox    = document.getElementById('msgBox');
   var msgText   = document.getElementById('msgText');
+  var clearX    = document.getElementById('clearX');
+  var kbSpacer  = document.getElementById('kbSpacer');
   var recCard   = document.getElementById('recCard');
   var recList   = document.getElementById('recList');
   var clearBtn  = document.getElementById('clearBtn');
@@ -472,6 +504,7 @@
 
     phone.classList.toggle('ok', !!n);
     phone.classList.toggle('bad', !n && !!phone.value.trim());
+    clearX.hidden = phone.value.length === 0;
     goBtn.disabled = !n;
   }
 
@@ -496,6 +529,80 @@
 
   phone.addEventListener('keydown', function (e) {
     if (e.key === 'Enter') { e.preventDefault(); openChat(); }
+  });
+
+  /* ---------- ניקוי השדה ---------- */
+  // mousedown ולא click, כדי שהשדה לא יאבד פוקוס והמקלדת לא תיסגר ותיפתח שוב
+  clearX.addEventListener('mousedown', function (e) { e.preventDefault(); });
+  clearX.addEventListener('click', function () {
+    phone.value = '';
+    update();
+    phone.focus();
+  });
+
+  /* ============================================================
+     המקלדת מסתירה את כפתור "פתח צ'אט" — פותחים מקום וגוללים אליו.
+     ב-Android עם interactive-widget=resizes-content ה-layout viewport
+     מתכווץ לבד; ב-iOS ובדפדפנים שמתעלמים מזה מתכווץ רק ה-visual
+     viewport, ואז אין לאן לגלול — ולכן ה-spacer.
+     ============================================================ */
+  var vv = window.visualViewport;
+  var scrollTimer = null;
+
+  function keyboardGap() {
+    if (!vv) return 0;
+    return Math.max(0, document.documentElement.clientHeight - vv.height);
+  }
+
+  function revealGoBtn() {
+    clearTimeout(scrollTimer);
+    scrollTimer = setTimeout(function () {
+      var gap = keyboardGap();
+
+      // המקלדת מכסה את ה-layout viewport (iOS): מחשבים מול ה-visual viewport,
+      // אחרת block:'end' היה מיישר את הכפתור לתחתית שמוסתרת מאחורי המקלדת
+      if (gap > 120 && vv) {
+        var visibleBottom = vv.offsetTop + vv.height;
+        var delta = goBtn.getBoundingClientRect().bottom + 16 - visibleBottom;
+        if (delta > 0) {
+          try { window.scrollBy({ top: delta, behavior: 'smooth' }); }
+          catch (e) { window.scrollBy(0, delta); }
+        }
+        return;
+      }
+
+      try { goBtn.scrollIntoView({ behavior: 'smooth', block: 'end' }); }
+      catch (e) { goBtn.scrollIntoView(false); }
+    }, 120);
+  }
+
+  function onViewportChange() {
+    var gap = keyboardGap();
+    var open = gap > 120;
+    kbSpacer.style.height = open ? gap + 'px' : '0px';
+    if (open && isTyping()) revealGoBtn();
+  }
+
+  function isTyping() {
+    var a = document.activeElement;
+    return a === phone || a === msgText;
+  }
+
+  if (vv) {
+    vv.addEventListener('resize', onViewportChange);
+    vv.addEventListener('scroll', onViewportChange);
+  }
+
+  // גיבוי לדפדפנים בלי visualViewport, ולמקרה שהמקלדת נפתחת בלי אירוע resize
+  [phone, msgText].forEach(function (el) {
+    el.addEventListener('focus', function () {
+      setTimeout(function () { if (isTyping()) revealGoBtn(); }, 300);
+    });
+    el.addEventListener('blur', function () {
+      setTimeout(function () {
+        if (!isTyping()) { kbSpacer.style.height = '0px'; clearTimeout(scrollTimer); }
+      }, 100);
+    });
   });
 
   /* ---------- פתיחת הצ'אט ---------- */
