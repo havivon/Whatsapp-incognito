@@ -243,6 +243,10 @@
     max-width:340px;margin:2px auto 0;
   }
   .foot .lock{color:#9fb0c2}
+  .credit{
+    margin:0 auto;text-align:center;direction:ltr;
+    font-size:11.5px;letter-spacing:.3px;color:var(--muted);opacity:.65;
+  }
 
   /* ---------- toast ---------- */
   #toast{
@@ -351,6 +355,8 @@
     <span class="lock">הכל רץ מקומית בדפדפן.</span> שום מספר לא נשלח לשום מקום.
   </p>
 
+  <p class="credit fx d4">Created By Havivon</p>
+
 </div>
 
 <!-- מתמלא בגובה המקלדת כשהיא נפתחת, כדי שיהיה לאן לגלול -->
@@ -367,13 +373,22 @@
      ============================================================ */
   var DEFAULT_CC = '972';
 
+  // מספר לאומי ישראלי (בלי 0 בהתחלה): נייד 5X + 7 ספרות, VoIP 7X + 7 ספרות,
+  // קווי 2/3/4/8/9 + 7 ספרות
   function isIL(n) {
-    return /^[2-9]\d{7,8}$/.test(n);
+    return /^(?:[57]\d{8}|[23489]\d{7})$/.test(n);
   }
 
+  // מחזיר את המספר בפורמט בינלאומי בלי + (למשל 972501234567), או null אם לא תקין.
+  // מספר זר מתקבל רק עם + או 00 מפורשים, באורך E.164 (8-15 ספרות).
   function normalize(raw) {
-    var s = String(raw == null ? '' : raw).trim();
+    var s = String(raw == null ? '' : raw)
+      .replace(/[\u200e\u200f\u202a-\u202e\u2066-\u2069]/g, '')   // סימוני כיוון שמגיעים בהדבקה
+      .trim();
     if (!s) return null;
+
+    // רק ספרות ותווי הפרדה רגילים; + מותר רק בהתחלה
+    if (/[^\d\s\-().+]/.test(s) || s.indexOf('+', 1) !== -1) return null;
 
     // דגל בינלאומי לפי תחילת הקלט המקורי
     var intl = s.charAt(0) === '+' || s.slice(0, 2) === '00';
@@ -382,21 +397,47 @@
     if (d.slice(0, 2) === '00') { d = d.slice(2); intl = true; }
     if (!d) return null;
 
-    // +972-050-123-4567 -> 972501234567 (ולא 9720501234567)
-    if (d.slice(0, 3) === DEFAULT_CC && d.length >= 11) {
-      var rest = d.slice(3).replace(/^0+/, '');
-      return rest ? DEFAULT_CC + rest : null;
+    // 972 + מספר ישראלי תקין בלבד. +972-050-123-4567 -> 972501234567 (ולא 9720501234567)
+    if (d.slice(0, 3) === DEFAULT_CC) {
+      var rest = d.slice(3).replace(/^0/, '');
+      return isIL(rest) ? DEFAULT_CC + rest : null;
     }
+
+    // מספר זר: רק עם + / 00, 8-15 ספרות, וקידומת מדינה לא מתחילה ב-0
+    if (intl) return /^[1-9]\d{7,14}$/.test(d) ? d : null;
 
     // מתחיל ב-0 => ישראלי בלבד, לא מנחשים מספר זר
     if (d.charAt(0) === '0') {
-      var local = d.replace(/^0+/, '');
+      var local = d.slice(1);
       return isIL(local) ? DEFAULT_CC + local : null;
     }
 
-    if (intl) return d.length >= 8 ? d : null;
-    if (isIL(d)) return DEFAULT_CC + d;
-    return d.length >= 8 ? d : null;
+    // בלי 0 ובלי קידומת: מקבלים רק מספר ישראלי (501234567), לא מנחשים מדינה
+    return isIL(d) ? DEFAULT_CC + d : null;
+  }
+
+  // הודעת שגיאה ברורה לקלט שלא עבר נרמול
+  function invalidReason(raw) {
+    var s = String(raw == null ? '' : raw)
+      .replace(/[\u200e\u200f\u202a-\u202e\u2066-\u2069]/g, '').trim();
+    if (/[^\d\s\-().+]/.test(s) || s.indexOf('+', 1) !== -1) {
+      return 'אפשר להקליד ספרות בלבד (ו-+ בהתחלה)';
+    }
+    var intl = s.charAt(0) === '+' || s.slice(0, 2) === '00';
+    var d = s.replace(/\D/g, '');
+    if (d.slice(0, 2) === '00') d = d.slice(2);
+    if (d.slice(0, 3) === DEFAULT_CC) {
+      return 'מספר ישראלי אחרי 972 צריך 9 ספרות (נייד) או 8 (קווי)';
+    }
+    if (intl) {
+      return d.charAt(0) === '0'
+        ? 'קידומת המדינה לא יכולה להתחיל ב-0'
+        : 'מספר בינלאומי צריך 8 עד 15 ספרות אחרי ה-+';
+    }
+    if (d.charAt(0) === '0') {
+      return 'מספר ישראלי צריך 10 ספרות (נייד, 05X-XXXXXXX) או 9 (קווי)';
+    }
+    return 'מספר לא תקין. למספר מחו"ל הוסיפו + או 00 בהתחלה';
   }
 
   function pretty(n) {
@@ -499,7 +540,7 @@
       statusEl.appendChild(document.createTextNode(' ✓'));
     } else {
       statusEl.className = 'status bad';
-      statusEl.textContent = 'המספר לא נראה תקין';
+      statusEl.textContent = invalidReason(phone.value);
     }
 
     phone.classList.toggle('ok', !!n);
@@ -508,10 +549,12 @@
     goBtn.disabled = !n;
   }
 
-  // עיצוב השדה עצמו — רק כשהסמן בסוף, כדי לא לשבור הקלדה באמצע
+  // עיצוב השדה עצמו — רק כשהסמן בסוף, כדי לא לשבור הקלדה באמצע.
+  // מעצבים רק מספר ישראלי שלם (normalize מחזיר ערך רק כשהמספר שלם), ומספר זר
+  // נשאר בדיוק כפי שהוקלד — אחרת הרווחים וקבוצות הספרות היו קופצים תוך כדי הקלדה.
   function autoFormat() {
     var n = normalize(phone.value);
-    if (!n) return;
+    if (!n || n.slice(0, 3) !== DEFAULT_CC) return;
     var atEnd = phone.selectionStart === phone.value.length &&
                 phone.selectionEnd === phone.value.length;
     if (!atEnd) return;
@@ -608,7 +651,10 @@
   /* ---------- פתיחת הצ'אט ---------- */
   function openChat() {
     var n = normalize(phone.value);
-    if (!n) { toast('צריך מספר תקין כדי לפתוח צ\'אט'); return; }
+    if (!n) {
+      toast(phone.value.trim() ? invalidReason(phone.value) : 'צריך מספר תקין כדי לפתוח צ\'אט');
+      return;
+    }
 
     var url = 'https://wa.me/' + n;
     // אם הטוגל כבוי — הטקסט לא נשלח, גם אם נשאר בתיבה
@@ -638,7 +684,7 @@
       if (n) phone.value = pretty(n);
       update();
       phone.focus();
-      if (!n) toast('הודבק, אבל המספר לא נראה תקין');
+      if (!n) toast('הודבק, אבל ' + invalidReason(v));
     })['catch'](function () {
       toast('הדפדפן חסם קריאה מהלוח — הדביקו ידנית');
       phone.focus();
